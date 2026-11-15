@@ -2,7 +2,7 @@
 
 A Python experiment for studying whether an incorrect suggestion or a user's positive or negative opinion changes models' factual claims, agreement, or tone. The framework collects model responses, asks a separate model to evaluate claims against supplied evidence, and exports results for analysis and human review. The original [research plan](docs/research-plan.md) and [proposal](https://docs.google.com/document/d/1-O_lCrRp8p3sz7guYkd-L16gtK4Kcp43WsYXdBzOCHo/edit?usp=sharing) describe the research design.
 
-**Status:** The 30 questions in `data/questions.csv` are drafts, not a validated dataset. Some lack source URLs and some evidence fields are generic references rather than actual evidence. Check every answer, source, and evidence excerpt before collecting or grading research data. No real model responses or research findings are included. The mock mode only verifies the plumbing.
+**Dataset:** [30 questions](data/questions.csv): **6 easy (20%), 9 medium (30%), and 15 hard (50%)**, with five questions in each of six topics. Reference answers, source links, evidence summaries, and all prompt variations are populated. Hard questions require connected calculations or careful conditional interpretation. See the [dataset guide](data/README.md) for the difficulty rubric and source conventions. Difficulty labels describe intended reasoning burden and have not been calibrated against model performance. No real model responses or research findings are included; mock mode only checks the pipeline.
 
 ## Quick start: free offline pilot
 
@@ -46,14 +46,14 @@ The adapters use the OpenAI Chat Completions API and Anthropic Messages API. No 
 
 ## Design and limitations
 
-The proposal lists three conditions in one place and mentions four variations and incorrect suggestions elsewhere. This implementation uses the research plan's **working four-condition interpretation**, which still needs confirmation before the study is finalized:
+The dataset uses four conditions. Opinion comparisons and incorrect-suggestion comparisons both include the neutral control:
 
 - `neutral`: the original question.
 - `incorrect_suggestion`: the dataset field, used as a complete prompt.
 - `positive_opinion`: the dataset field, used as a complete prompt.
-- `negative_opinion`: the dataset field followed by the original question.
+- `negative_opinion`: the dataset field, used as a complete prompt.
 
-Current fields vary substantially in length, context and wording: most positive and incorrect prompts are full scenarios whereas negatives are short statements of disinterest. They may also contain hints. The measured differences therefore cannot be attributed solely to opinion or suggestion. Review and standardize all versions, establish comparable conditions and document the final protocol before collecting data. Evidence is passed to the **judge**, never to the tested model. Data validation checks the presence of text and unique IDs; it does not verify sources, truth, evidence coverage, or equivalence of prompts. Missing source URLs generate warnings but do not block a pilot.
+All four versions retain the same scenario, assumptions, and requested task. The three condition fields are complete prompts with one added framing sentence; do not append the neutral question. Sources support the facts and methods, while the quantitative scenarios use explicitly hypothetical inputs. Evidence fields are paraphrased summaries, not source quotations. Pilot the framing and grading before freezing the study. Evidence is passed to the **judge**, never to the tested model. Data validation checks the presence of text and unique IDs; it does not independently verify factual correctness or evidence coverage. Record the dataset commit or hash because this revision replaces earlier questions while keeping their IDs.
 
 Configure `conditions`, integer `repetitions`, and randomization `seed` in the experiment JSON. Every request is independent, and the seeded order shuffles all model/question/condition/repetition combinations. Matching repetition numbers pair observations for analysis but do not make model sampling deterministic. Avoid changing models, prompts, evidence or scoring midway through a research run. Provider-side defaults and mutable model aliases can limit reproducibility even when the same config is used.
 

@@ -8,15 +8,13 @@ Measure whether user framing changes factual content, while distinguishing factu
 
 ## Dataset
 
-Curate 30–50 questions from reliable source documents, covering varied topics and difficulty levels. Include direct, multistep, and interpretation-based questions. Record a reference answer and supporting evidence before model testing. The starter CSV is an empty template, not a validated dataset.
+The current dataset contains 30 unique questions: 6 easy (20%), 9 medium (30%), and 15 hard (50%). Five questions cover each of the six existing topic areas. Difficulty follows the [dataset guide](../data/README.md): easy tasks require direct recall or one simple operation; medium tasks require a short application or conceptual distinction; hard tasks combine several operations, assumptions, or conditional interpretations. These are design labels, not measured model failure rates.
 
-Suggested fields: stable question ID, question, topic, difficulty, question type, reference answer, source URL, evidence text, incorrect suggestion, positive opinion, and negative opinion. Select opinions that can vary independently of the factual answer where possible.
+Each row includes a neutral question, reference answer with essential reasoning, source URL, evidence summary, and three full prompt variations. Quantitative scenarios are explicitly hypothetical, with all needed numerical inputs specified. The sources support the underlying facts or methods; scenario answers are derived rather than presented as reported observations.
 
-## Prompt conditions: clarification needed
+## Prompt conditions
 
-The dataset section explicitly lists three conditions: neutral, positive opinion, and negative opinion. The technical approach says four prompt variations, and the research questions separately mention suggesting an incorrect answer.
-
-Working proposal: use four distinct conditions—neutral, incorrect suggestion, positive opinion, and negative opinion. Confirm this before finalizing templates or collecting data. Do not silently combine false assertions with opinion prompts; that would blur the effects being measured.
+The current wide-format CSV stores four conditions per question: the neutral question and complete incorrect-suggestion, positive-opinion, and negative-opinion prompts. All versions use the same scenario and requested task. Opinion comparisons and incorrect-suggestion comparisons each use the neutral control. Send one prompt at a time without supplying reference answers or evidence to the tested model.
 
 ## Experiment framework
 
@@ -49,9 +47,9 @@ Compare factuality across models, conditions, and difficulty levels. Make bar ch
 
 ## Open decisions before data collection
 
-1. Confirm the four-condition interpretation.
+1. Pilot the difficulty labels and review prompt framing before freezing the dataset.
 2. Select models, API settings, budget, and repetitions.
-3. Finalize sources, questions, and evidence snapshots.
+3. Review the curated questions and preserve source evidence for the final dataset version.
 4. Freeze prompt templates and the scoring rubric.
 5. Choose the evaluator and manual-review procedure.
 6. Define treatment of no-claim responses and answer completeness.

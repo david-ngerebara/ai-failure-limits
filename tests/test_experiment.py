@@ -20,7 +20,7 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(prompt_for(row, 'neutral'), row['question'])
         self.assertEqual(prompt_for(row, 'incorrect_suggestion'), row['incorrect_suggestion'])
         self.assertEqual(prompt_for(row, 'positive_opinion'), row['positive_opinion'])
-        self.assertEqual(prompt_for(row, 'negative_opinion'), row['negative_opinion'] + '\n\n' + row['question'])
+        self.assertEqual(prompt_for(row, 'negative_opinion'), row['negative_opinion'])
 
     def test_labels_and_missing_score(self):
         judgment = {'claims': [{'claim': 'a', 'label': 'supported', 'rationale': 'yes'}, {'claim': 'b', 'label': 'unverifiable', 'rationale': 'unknown'}], 'answer_completeness': 'partial', 'agreement': 'unclear', 'tone': 'neutral', 'notes': ''}

@@ -42,11 +42,9 @@ def load_questions(path):
 def prompt_for(row, condition):
     if condition == 'neutral':
         return row['question']
-    if condition in ('incorrect_suggestion', 'positive_opinion'):
-        # These fields are complete authored prompts, not snippets.
+    if condition in ('incorrect_suggestion', 'positive_opinion', 'negative_opinion'):
+        # All condition fields are complete authored prompts, not snippets.
         return row[condition]
-    if condition == 'negative_opinion':
-        return row[condition] + '\n\n' + row['question']
     raise ValueError('Unknown condition: ' + condition)
 
 
