@@ -1,0 +1,1 @@
+{"id": "judge", "provider": "openai", "model": "REPLACE_WITH_JUDGE_MODEL_ID", "max_tokens": 2048}

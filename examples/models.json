@@ -1,0 +1,9 @@
+{
+  "models": [
+    {"id": "openai-example", "provider": "openai", "model": "REPLACE_WITH_OPENAI_MODEL_ID", "max_tokens": 1024},
+    {"id": "anthropic-example", "provider": "anthropic", "model": "REPLACE_WITH_ANTHROPIC_MODEL_ID", "max_tokens": 1024}
+  ],
+  "conditions": ["neutral", "incorrect_suggestion", "positive_opinion", "negative_opinion"],
+  "repetitions": 1,
+  "seed": 42
+}

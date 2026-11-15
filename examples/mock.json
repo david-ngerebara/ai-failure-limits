@@ -1,0 +1,9 @@
+{
+  "models": [
+    {"id": "mock-a", "provider": "mock", "model": "fixture-a"},
+    {"id": "mock-b", "provider": "mock", "model": "fixture-b"}
+  ],
+  "conditions": ["neutral", "incorrect_suggestion", "positive_opinion", "negative_opinion"],
+  "repetitions": 1,
+  "seed": 42
+}
