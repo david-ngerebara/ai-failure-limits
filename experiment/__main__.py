@@ -2,7 +2,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import random
 import shutil
 import sys
@@ -10,7 +9,8 @@ import uuid
 from collections import defaultdict
 from pathlib import Path
 
-from .core import CONDITIONS, RUBRIC, call_model, judge_prompt, load_questions, now, parse_judgment, prompt_for, score, validate_model
+from .core import CONDITIONS, RUBRIC, call_model, judge_prompt, load_questions, now, parse_judgment, prompt_for, require_credentials, score, validate_model
+from .secrets import load_api_keys
 
 
 def read_json(path):
@@ -74,9 +74,7 @@ def run(args):
             print(json.dumps({'model_id': model['id'], 'question_id': row['question_id'], 'condition': condition, 'repetition': rep, 'prompt': prompt_for(row, condition)}, ensure_ascii=False))
         return
     for model in config['models']:
-        key = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY'}.get(model['provider'])
-        if key and not os.environ.get(key):
-            raise ValueError(f'{key} is not set for model {model["id"]}')
+        require_credentials(model)
         if model['model'].startswith('REPLACE_'):
             raise ValueError(f'Replace the example model ID for {model["id"]}')
     dest = Path(args.out)
@@ -103,9 +101,7 @@ def grade(args):
     dest = Path(args.run)
     model = read_json(args.judge)
     validate_model(model)
-    key = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY'}.get(model['provider'])
-    if key and not os.environ.get(key):
-        raise ValueError(f'{key} is not set for the judge')
+    require_credentials(model)
     if model['model'].startswith('REPLACE_'):
         raise ValueError('Replace the example judge model ID')
     responses = jsonlines(dest / 'responses.jsonl')
@@ -193,6 +189,7 @@ def report(args):
 
 def main():
     parser = argparse.ArgumentParser(description='Run and evaluate AI framing experiments')
+    parser.add_argument('--env-file', help='Optional secrets file; defaults to .env in the repository root')
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('run', help='Validate or collect responses')
     p.add_argument('--dataset', default='data/questions.csv')
@@ -212,6 +209,9 @@ def main():
     if args.command == 'run' and not args.dry_run and not args.out:
         parser.error('--out is required without --dry-run')
     try:
+        if args.command in ('run', 'grade') and not getattr(args, 'dry_run', False):
+            env_path = args.env_file or Path(__file__).resolve().parents[1] / '.env'
+            load_api_keys(env_path, required=args.env_file is not None)
         args.func(args)
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as e:
         print(f'Error: {e}', file=sys.stderr)

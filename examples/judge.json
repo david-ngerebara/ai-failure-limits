@@ -1,1 +1,8 @@
-{"id": "judge", "provider": "openai", "model": "REPLACE_WITH_JUDGE_MODEL_ID", "max_tokens": 2048}
+{
+  "id": "astra-judge",
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "medium",
+  "max_tokens": 32768,
+  "timeout_seconds": 300
+}

@@ -20,29 +20,48 @@ The dry run prints the exact prompts and request count without contacting a prov
 
 ## Run real models
 
-1. Review and freeze the dataset and prompt protocol. Copy `examples/models.json` and replace the placeholder model identifiers with API model IDs available to your accounts. Each `id` is a unique local label; `provider` is `openai` or `anthropic`. `max_tokens` is the output-token cap; `temperature` is optional. If omitted, the provider's default applies. Check that your chosen model supports the selected settings. Pin model versions where available.
-2. Set the relevant credentials in your shell, without committing them:
+The default judge in [`examples/judge.json`](examples/judge.json) is **`gpt-6-astra`**, with medium reasoning effort. It is separate from the six test models in [`examples/models.json`](examples/models.json):
 
-   ```bash
-   export OPENAI_API_KEY='your key'
-   export ANTHROPIC_API_KEY='your key'
+| Provider | Test model IDs |
+| --- | --- |
+| OpenAI | `gpt-6.1-sol`, `gpt-6-luna` |
+| Anthropic | `claude-sonnet-5-5`, `claude-haiku-5-5` |
+| Google Gemini | `gemini-4-argon`, `gemini-4-hydrogen` |
+
+Model IDs were checked against the providers' official catalogs on November 15, 2026: [OpenAI](https://developers.openai.com/api/docs/models), [Anthropic](https://platform.claude.com/docs/en/models/overview), and [Google](https://aistudio.google.com/docs/models). Your API account must have access and billing/quota for each selected model; documentation alone does not verify account access. No model calls have been made to validate these configurations against a live account.
+
+1. Review the dataset and prompt protocol. Use `examples/models.json` as supplied, or copy it and remove models you do not want to test. Each `id` is a unique local label; `provider` is `openai`, `anthropic`, or `gemini`.
+2. Open the local **`.env`** file in the repository root and paste your API keys after the equals signs. On a fresh clone, first copy the blank template with `cp .env.example .env` (only if `.env` does not exist). The file should look like this, with your actual values replacing the placeholders:
+
+   ```dotenv
+   OPENAI_API_KEY=your-openai-key
+   ANTHROPIC_API_KEY=your-anthropic-key
+   GEMINI_API_KEY=your-gemini-key
    ```
 
-3. Inspect the requests before running them. API collection and judging can incur charges; the request count is models × questions × conditions × repetitions, plus one judge request per successful response. Start with a small pilot.
+   The CLI loads `.env` automatically for collection and grading. `.env` is ignored by Git; `.env.example` contains only empty fields and is safe to commit. Existing shell environment variables take precedence. Blank entries are ignored, so fill only the keys for providers you use (Astra judging always needs `OPENAI_API_KEY`). The loader supports single-line `KEY=value`, optional quotes, `export`, and comments; it does not expand variables, interpret escapes, or execute shell commands. Only the three provider key names above are accepted. For a different secrets file, put the option before the command: `python3 -m experiment --env-file /path/to/secrets.env run ...`. Keep that custom file outside the repository or explicitly ignore it. Dry runs and mock runs need no credentials.
+
+3. Inspect the requests before running them. These configurations now contain real model IDs: collection and judging can incur charges. The full dataset uses **720 test requests** (30 questions × 6 models × 4 conditions × 1 repetition), plus up to **720 Astra judge requests**. Start with the two-question pilot below: 48 test requests and up to 48 judge requests.
 
    ```bash
    python3 -m experiment run --config examples/models.json --limit 2 --dry-run
    python3 -m experiment run --config examples/models.json --limit 2 --out runs/pilot-01
    ```
 
-4. Copy `examples/judge.json`, choose a judge model, and run:
+4. Grade the collected answers with Astra and export the analysis:
 
    ```bash
    python3 -m experiment grade --run runs/pilot-01 --judge examples/judge.json
    python3 -m experiment report --run runs/pilot-01
    ```
 
-The adapters use the OpenAI Chat Completions API and Anthropic Messages API. No provider SDK is required. The example configurations intentionally have placeholders and cannot accidentally launch paid requests. Never put API keys in configuration files. Calls run sequentially with a 120-second timeout and no automatic retries; errors are recorded separately. An interrupted run or grading pass is incomplete, not resumable. Preserve it for inspection and start a new run or copy the run and remove the copied grade files to regrade. Do not combine partial passes without explicitly tracking their provenance.
+The adapters use OpenAI Chat Completions, Anthropic Messages, and Google's `generateContent` API. No provider SDK or dotenv dependency is required. Keys are sent in authentication headers, never in model configuration snapshots. Gemini's `modelVersion` and `usageMetadata` are recorded; only final text parts are graded. Blocked, empty, or truncated outputs remain collection failures.
+
+The supplied configurations set `max_tokens` to 32,768 and `timeout_seconds` to 300 for every model, including the judge. The larger token allowance leaves room for reasoning before the final answer, especially for Gemini 4. It is a cap, not a requested answer length or a prediction of cost. OpenAI receives `max_completion_tokens`, Anthropic receives `max_tokens`, and Gemini receives `maxOutputTokens`; providers count tokens differently, so equal limits do not imply equal computation or cost. Pilot these limits and inspect truncation/timeouts before freezing the study.
+
+OpenAI models use explicit `reasoning_effort: "medium"`; Anthropic and Gemini use their provider defaults. Temperature is omitted for all models. GPT-6 reasoning models do not accept temperature unless reasoning is disabled, and Astra/Sol do not support disabling it. Optional `reasoning_effort` is an OpenAI-only setting; optional `temperature` and `timeout_seconds` are also validated. Different provider defaults are part of this experimental setup, not a guarantee of identical sampling or thinking budgets.
+
+Calls run sequentially with no automatic retries; errors are recorded separately. If `timeout_seconds` is absent, the default is 120 seconds. An interrupted run or grading pass is incomplete, not resumable. Preserve it for inspection and start a new run or copy the run and remove the copied grade files to regrade. Do not combine partial passes without explicitly tracking their provenance.
 
 ## Design and limitations
 
@@ -61,6 +80,8 @@ Configure `conditions`, integer `repetitions`, and randomization `seed` in the e
 
 The judge sees the question, exact prompt, response, reference answer, and evidence. The fixed rubric requests atomic, nonduplicate checkable claims labeled `supported`, `contradicted`, or `unverifiable`; partially supported claims are unverifiable unless contradicted. It separately asks for answer completeness, agreement, and tone. The score is `100 × supported / (supported + contradicted + unverifiable)`. No claims means a missing score, not 100 or 0. This score measures support among extracted claims, not whether the answer is complete. Judge output is fallible, especially with incomplete evidence. It is not an implementation or validation of LLM-Oasis; the rubric is a project-specific starting point.
 
+Astra grades every provider with the same rubric. The judge prompt excludes provider and model identifiers, although response wording may still reveal them. A single judge can have systematic preferences, including preferences for related models; retain the manual audit and treat the scores as that judge's assessments.
+
 Each run contains:
 
 - `questions.csv`, `config.json`, and `manifest.json`: input snapshot, settings, dataset SHA-256, question IDs, and planned request count.
@@ -73,4 +94,4 @@ Each run contains:
 
 Optional plots require `python3 -m pip install matplotlib`, then `python3 -m experiment.plot runs/pilot-01`. The figures show means with sample counts and paired changes; they do not calculate uncertainty intervals. Inspect individual responses and source evidence, perform a documented manual audit, and choose an appropriate uncertainty method before drawing conclusions. `report` regenerates the derived CSVs except `review.csv`.
 
-API references: [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat/create) and [Anthropic Messages](https://docs.anthropic.com/en/api/messages). Provider availability and model parameters may change.
+API references: [OpenAI GPT-6 compatibility](https://developers.openai.com/api/docs/guides/latest-model#migration-quickstart), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages), and [Gemini generateContent](https://aistudio.google.com/api-reference/generate-content/generate-content). Provider availability and model parameters may change.

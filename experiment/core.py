@@ -4,6 +4,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -11,6 +12,7 @@ CONDITIONS = ('neutral', 'incorrect_suggestion', 'positive_opinion', 'negative_o
 REQUIRED = ('question_id', 'question', 'topic', 'difficulty', 'question_type', 'reference_answer',
             'source_url', 'evidence_text', 'incorrect_suggestion', 'positive_opinion', 'negative_opinion')
 LABELS = {'supported', 'contradicted', 'unverifiable'}
+API_KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'gemini': 'GEMINI_API_KEY'}
 
 
 def now():
@@ -51,15 +53,35 @@ def prompt_for(row, condition):
 def validate_model(model):
     if not isinstance(model, dict) or not all(isinstance(model.get(k), str) and model[k].strip() for k in ('id', 'provider', 'model')):
         raise ValueError('Each model needs nonempty id, provider and model strings')
-    if model['provider'] not in ('openai', 'anthropic', 'mock'):
-        raise ValueError('Provider must be openai, anthropic or mock')
-    allowed = {'id', 'provider', 'model', 'temperature', 'max_tokens'}
+    if model['provider'] not in (*API_KEY_ENV, 'mock'):
+        raise ValueError('Provider must be openai, anthropic, gemini or mock')
+    allowed = {'id', 'provider', 'model', 'temperature', 'max_tokens', 'reasoning_effort', 'timeout_seconds'}
     if set(model) - allowed:
         raise ValueError('Unknown model fields: ' + ', '.join(sorted(set(model) - allowed)))
     if 'temperature' in model and (isinstance(model['temperature'], bool) or not isinstance(model['temperature'], (int, float)) or not 0 <= model['temperature'] <= 1):
         raise ValueError('temperature must be a number from 0 to 1')
     if 'max_tokens' in model and (isinstance(model['max_tokens'], bool) or not isinstance(model['max_tokens'], int) or model['max_tokens'] < 1):
         raise ValueError('max_tokens must be a positive integer')
+    if 'timeout_seconds' in model and (isinstance(model['timeout_seconds'], bool) or not isinstance(model['timeout_seconds'], int) or model['timeout_seconds'] < 1):
+        raise ValueError('timeout_seconds must be a positive integer')
+    if 'reasoning_effort' in model:
+        if model['provider'] != 'openai' or model['reasoning_effort'] not in ('none', 'low', 'medium', 'high', 'xhigh', 'max'):
+            raise ValueError('reasoning_effort is supported only for OpenAI: none, low, medium, high, xhigh, max')
+        if model['reasoning_effort'] != 'none' and 'temperature' in model:
+            raise ValueError('Omit temperature when using OpenAI reasoning')
+    if model['provider'] == 'openai' and model['model'].startswith(('gpt-6-', 'gpt-6.1-')):
+        if 'temperature' in model and model.get('reasoning_effort') != 'none':
+            raise ValueError('GPT-6 temperature requires reasoning_effort=none; otherwise omit it')
+        if model['model'].startswith(('gpt-6-astra', 'gpt-6.1-sol')) and model.get('reasoning_effort') == 'none':
+            raise ValueError('GPT-6 Astra and GPT-6.1 Sol require at least low reasoning effort')
+
+
+def require_credentials(model):
+    """Fail before creating run artifacts if a required credential is missing."""
+    key_name = API_KEY_ENV.get(model['provider'])
+    if key_name and not os.environ.get(key_name):
+        raise ValueError(f'{key_name} is not set for model {model["id"]}')
+    return os.environ.get(key_name) if key_name else None
 
 
 def call_model(model, prompt):
@@ -68,10 +90,7 @@ def call_model(model, prompt):
     provider = model['provider']
     if provider == 'mock':
         return {'text': 'Offline mock response for pipeline testing.', 'returned_model': model['model'], 'usage': {}}
-    key_name = 'OPENAI_API_KEY' if provider == 'openai' else 'ANTHROPIC_API_KEY'
-    key = os.environ.get(key_name)
-    if not key:
-        raise ValueError(f'{key_name} is not set')
+    key = require_credentials(model)
     payload = {'model': model['model'], 'messages': [{'role': 'user', 'content': prompt}]}
     if 'temperature' in model:
         payload['temperature'] = model['temperature']
@@ -80,13 +99,27 @@ def call_model(model, prompt):
         headers = {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
         if 'max_tokens' in model:
             payload['max_completion_tokens'] = model['max_tokens']
-    else:
+        if 'reasoning_effort' in model:
+            payload['reasoning_effort'] = model['reasoning_effort']
+    elif provider == 'anthropic':
         url = 'https://api.anthropic.com/v1/messages'
         headers = {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
         payload['max_tokens'] = model.get('max_tokens', 1024)
+    else:
+        model_id = model['model'].removeprefix('models/')
+        url = 'https://generativelanguage.googleapis.com/v1beta/models/' + urllib.parse.quote(model_id, safe='') + ':generateContent'
+        headers = {'x-goog-api-key': key, 'Content-Type': 'application/json'}
+        payload = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
+        generation = {}
+        if 'max_tokens' in model:
+            generation['maxOutputTokens'] = model['max_tokens']
+        if 'temperature' in model:
+            generation['temperature'] = model['temperature']
+        if generation:
+            payload['generationConfig'] = generation
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=model.get('timeout_seconds', 120)) as resp:
             data = json.load(resp)
     except urllib.error.HTTPError as e:
         # Do not log response bodies, which may contain sensitive material.
@@ -97,12 +130,29 @@ def call_model(model, prompt):
         text = message.get('content')
         if not isinstance(text, str) or not text.strip() or choice.get('finish_reason') != 'stop' or message.get('refusal'):
             raise ValueError('Provider returned a refusal, incomplete, or empty response')
-    else:
+    elif provider == 'anthropic':
         if data.get('stop_reason') not in ('end_turn', 'stop_sequence'):
             raise ValueError('Provider returned an incomplete or non-final response')
         text = '\n'.join(x.get('text', '') for x in data.get('content', []) if x.get('type') == 'text')
         if not text.strip():
             raise ValueError('Provider returned an empty response')
+    else:
+        if data.get('promptFeedback', {}).get('blockReason'):
+            raise ValueError('Gemini blocked the prompt')
+        candidates = data.get('candidates', [])
+        if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
+            raise ValueError('Gemini returned a blocked, incomplete, or missing response')
+        candidate = candidates[0]
+        if any(rating.get('blocked') for rating in candidate.get('safetyRatings', [])):
+            raise ValueError('Gemini blocked the response')
+        # Thought parts are not the final answer and must not enter factuality grading.
+        parts = candidate.get('content', {}).get('parts', [])
+        if any(not p.get('thought') and not isinstance(p.get('text'), str) for p in parts):
+            raise ValueError('Gemini returned a non-text response')
+        text = ''.join(p['text'] for p in parts if not p.get('thought') and isinstance(p.get('text'), str))
+        if not text.strip():
+            raise ValueError('Gemini returned an empty final answer')
+        return {'text': text, 'returned_model': data.get('modelVersion'), 'usage': data.get('usageMetadata', {})}
     return {'text': text, 'returned_model': data.get('model'), 'usage': data.get('usage', {})}
 
 
